@@ -3,6 +3,9 @@
 # Default mode
 mode="default"
 
+# Default output file
+output_file="savefile.json"
+
 # Parse command-line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -14,6 +17,19 @@ while [[ $# -gt 0 ]]; do
             mode="default"
             shift
             ;;
+        -f|--files)
+            shift
+            # Collect all following arguments until we hit another option
+            input_files=()
+            while [[ $# -gt 0 ]] && ! [[ $1 =~ ^- ]]; do
+                input_files+=("$1")
+                shift
+            done
+            ;;
+        -o|--output)
+            output_file="$2"
+            shift 2
+            ;;
         *)
             echo "Unknown option: $1"
             exit 1
@@ -22,8 +38,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 # File paths
-input_file="books.md"
-output_file="savefile.json"
+if [ ${#input_files[@]} -eq 0 ]; then
+    input_files=("books.md")
+fi
 
 # Initialize counters
 fastId=1
@@ -34,11 +51,13 @@ total_books=0
 # Function to count total books
 count_books() {
     local count=0
-while IFS= read -r line; do
-    if [[ "$line" =~ ^- ]]; then
-            ((count++))
-    fi
-done < "$input_file"
+    for input_file in "${input_files[@]}"; do
+        while IFS= read -r line; do
+            if [[ "$line" =~ ^- ]]; then
+                ((count++))
+            fi
+        done < "$input_file"
+    done
     echo "$count"
 }
 
@@ -64,42 +83,44 @@ format_json_entry() {
 # Function to process input and generate JSON
 generate_json() {
     local is_first=true
-    while IFS= read -r line; do
-        if [[ "$line" =~ ^- ]]; then
-            # Extract book name
-            book_name=$(echo "$line" | sed 's/^- //' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    for input_file in "${input_files[@]}"; do
+        while IFS= read -r line; do
+            if [[ "$line" =~ ^- ]]; then
+                # Extract book name
+                book_name=$(echo "$line" | sed 's/^- //' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 
-            # Generate book ID
-            book_id=$(generate_book_id)
+                # Generate book ID
+                book_id=$(generate_book_id)
 
-            # Format JSON entry
-            if [ "$is_first" = true ]; then
-                is_last=false
-                if [ "$fastId" -eq "$total_books" ]; then
-                    is_last=true
+                # Format JSON entry
+                if [ "$is_first" = true ]; then
+                    is_last=false
+                    if [ "$fastId" -eq "$total_books" ]; then
+                        is_last=true
+                    fi
+                    json_entry=$(format_json_entry "$book_id" "$book_name" "$is_last")
+                    echo "$json_entry" >> "$output_file"
+                    is_first=false
+                else
+                    is_last=false
+                    if [ "$fastId" -eq "$total_books" ]; then
+                        is_last=true
+                    fi
+                    json_entry=$(format_json_entry "$book_id" "$book_name" "$is_last")
+                    echo "$json_entry" >> "$output_file"
                 fi
-                json_entry=$(format_json_entry "$book_id" "$book_name" "$is_last")
-                echo "$json_entry" >> "$output_file"
-                is_first=false
-            else
-                is_last=false
-                if [ "$fastId" -eq "$total_books" ]; then
-                    is_last=true
+
+                # Update counters
+                ((fastId++))
+                ((book_in_category++))
+
+                if [ "$book_in_category" -gt 3 ]; then
+                    book_in_category=1
+                    ((category_num++))
                 fi
-                json_entry=$(format_json_entry "$book_id" "$book_name" "$is_last")
-                echo "$json_entry" >> "$output_file"
             fi
-
-            # Update counters
-            ((fastId++))
-            ((book_in_category++))
-
-            if [ "$book_in_category" -gt 3 ]; then
-                book_in_category=1
-                ((category_num++))
-            fi
-        fi
-    done < "$input_file"
+        done < "$input_file"
+    done
 }
 
 # Main logic
@@ -109,48 +130,52 @@ echo "[" >> "$output_file"
 
 if [ "$mode" = "random" ]; then
     # Create temporary file to store all JSON entries
-temp_file=$(mktemp)
+    temp_file=$(mktemp)
 
     # Collect all book entries into the temporary file
-fastId=1
+    fastId=1
     category_num=1
     book_in_category=1
-while IFS= read -r line; do
-        if [[ "$line" =~ ^- ]]; then
-            book_name=$(echo "$line" | sed 's/^- //' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-            book_id=$(generate_book_id)
+    for input_file in "${input_files[@]}"; do
+        while IFS= read -r line; do
+            if [[ "$line" =~ ^- ]]; then
+                book_name=$(echo "$line" | sed 's/^- //' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+                book_id=$(generate_book_id)
 
-            json_entry=$(printf '    {"fastId":%d,"id":"%s","extra":null,"amount":null,"name":"%s","investors":[]}' \
-                        "$fastId" "$book_id" "$book_name")
-            echo "$json_entry" >> "$temp_file"
-    ((fastId++))
-            ((book_in_category++))
+                json_entry=$(printf '    {"fastId":%d,"id":"%s","extra":null,"amount":null,"name":"%s","investors":[]}' \
+                            "$fastId" "$book_id" "$book_name")
+                echo "$json_entry" >> "$temp_file"
+                ((fastId++))
+                ((book_in_category++))
 
-            if [ "$book_in_category" -gt 3 ]; then
-                book_in_category=1
-                ((category_num++))
+                if [ "$book_in_category" -gt 3 ]; then
+                    book_in_category=1
+                    ((category_num++))
+                fi
             fi
-        fi
-done < "$input_file"
+        done < "$input_file"
+    done
 
     # Shuffle the entries and write to output file
     shuffled_entries=$(shuf "$temp_file")
-    fastId=1
-    first_entry=true
+    
+    # Count total entries for proper comma placement
+    entry_count=$(wc -l < "$temp_file")
+    current_entry=1
+    
     while IFS= read -r line; do
-        if [ "$first_entry" = true ]; then
+        if [ "$current_entry" -eq "$entry_count" ]; then
+            # Last entry - no comma
             echo "$line" >> "$output_file"
-            first_entry=false
         else
-            # Update fastId in the entry
-            updated_line=$(echo "$line" | sed "s/\"fastId\":[0-9]*/\"fastId\":$fastId/")
-            echo "$updated_line" >> "$output_file"
+            # Add comma to all entries except the last one
+            echo "$line," >> "$output_file"
         fi
-        ((fastId++))
-done <<< "$shuffled_entries"
+        ((current_entry++))
+    done <<< "$shuffled_entries"
 
     # Remove the temporary file
-rm "$temp_file"
+    rm "$temp_file"
 else
     generate_json
 fi
