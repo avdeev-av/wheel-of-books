@@ -2,6 +2,8 @@
 
 import re
 from collections import OrderedDict
+from rich.console import Console
+from rich.text import Text
 
 def parse_markdown_table(file_path):
     with open(file_path, 'r', encoding='utf-8') as f:
@@ -66,14 +68,32 @@ def filter_and_sort_entries(entries):
     return tier_list
 
 def generate_tui_tierlist(tier_list):
-    print("Tier-list:")
-    print("=" * 20)
+    console = Console()
+    
+    # Цветовая градация для тиров
+    tier_colors = {
+        'WW': 'bright_red',
+        'W': 'red',
+        'L': 'yellow',
+        'LL': 'bright_yellow'
+    }
+    
+    # Вывод заголовка с белым цветом
+    console.print("Tier-list:", style="white bold")
+    console.print("=" * 20, style="white bold")
     
     for tier, names in tier_list.items():
         if names:
-            print(f"\n{tier}:")
+            # Выводим тиро с соответствующим цветом
+            console.print(f"\n{tier}:", style=tier_colors[tier])
             for name in names:
-                print(f"  - {name}")
+                # Используем Text для точного контроля цвета
+                text = Text(f"  - {name}")
+                text.stylize(tier_colors[tier])
+                console.print(text)
+        else:
+            # Для пустых тиров белый цвет
+            console.print(f"\n{tier}:", style="white")
 
 if __name__ == "__main__":
     entries = parse_markdown_table("results.md")
