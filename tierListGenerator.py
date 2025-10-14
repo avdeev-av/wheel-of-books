@@ -98,3 +98,4 @@ def generate_tui_tierlist(tier_list):
 if __name__ == "__main__":
     entries = parse_markdown_table("results.md")
     filtered_tier_list = filter_and_sort_entries(entries)
+    generate_tui_tierlist(filtered_tier_list)
